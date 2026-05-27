@@ -1,12 +1,11 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from models.incident import LogRequest, IncidentResponse
+from services.analyzer import analyze_infrastructure_log
 import requests
 import psutil
 import platform
 app = FastAPI()
-class LogRequest(BaseModel):
-    log: str
-
+incidents=[]
 
 @app.get("/")
 def home():
@@ -38,39 +37,63 @@ def cpu():
         "cpu_percent": psutil.cpu_percent(interval=1)
     }
 
-@app.post("/analyze")
+@app.post("/analyze", response_model=IncidentResponse)
 def analyze_log(request: LogRequest):
+    incident = analyze_infrastructure_log(request.log)
 
-    log_text = request.log.lower()
+    incidents.append(incident)
 
-    severity = "low"
-    recommendation = "Monitor the system"
+    return incident
 
-    if "disk" in log_text:
-        issue = "Disk related issue detected"
-        severity = "high"
-        recommendation = "Clean disk space or extend storage"
+@app.get("/incidents")
+def get_incidents():
+    return {
+        "total_incidents": len(incidents),
+        "incidents": incidents
+    }
+@app.get("/incidents/{incident_id}")
+def get_incident(incident_id: str):
 
-    elif "memory" in log_text:
-        issue = "Memory related issue detected"
-        severity = "medium"
-        recommendation = "Check running processes and memory usage"
+    for incident in incidents:
 
-    elif "cpu" in log_text:
-        issue = "CPU related issue detected"
-        severity = "medium"
-        recommendation = "Investigate high CPU-consuming services"
-
-    else:
-        issue = "Unknown issue"
-        recommendation = "Manual investigation required"
+        if incident["incident_id"] == incident_id:
+            return incident
 
     return {
-        "received_log": request.log,
-        "issue": issue,
-        "severity": severity,
-        "recommendation": recommendation,
-        "message": "Log analyzed successfully"
+        "message": "Incident not found"
+    }
+@app.put("/incidents/{incident_id}")
+def update_incident_status(incident_id: str):
+
+    for incident in incidents:
+
+        if incident["incident_id"] == incident_id:
+
+            incident["status"] = "resolved"
+
+            return {
+                "message": "Incident updated successfully",
+                "incident": incident
+            }
+
+    return {
+        "message": "Incident not found"
+    }
+@app.delete("/incidents/{incident_id}")
+def delete_incident(incident_id: str):
+
+    for incident in incidents:
+
+        if incident["incident_id"] == incident_id:
+
+            incidents.remove(incident)
+
+            return {
+                "message": "Incident deleted successfully"
+            }
+
+    return {
+        "message": "Incident not found"
     }
 @app.get("/weather")
 def weather():
