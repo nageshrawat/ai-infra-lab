@@ -1,11 +1,25 @@
 from fastapi import FastAPI
 from models.incident import LogRequest, IncidentResponse
 from services.analyzer import analyze_infrastructure_log
+import os
+from dotenv import load_dotenv
 import requests
 import psutil
 import platform
 app = FastAPI()
 incidents=[]
+load_dotenv()
+APP_NAME = os.getenv("APP_NAME")
+APP_ENV = os.getenv("APP_ENV")
+APP_PORT = os.getenv("APP_PORT")
+@app.get("/config")
+def get_config():
+
+    return {
+        "app_name": APP_NAME,
+        "environment": APP_ENV,
+        "port": APP_PORT
+    }
 
 @app.get("/")
 def home():
