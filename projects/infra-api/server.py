@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from models.incident import LogRequest, IncidentResponse
 from services.analyzer import analyze_infrastructure_log
+from services.database import get_connection
 import os
 from dotenv import load_dotenv
 import requests
@@ -54,13 +55,37 @@ def cpu():
 @app.post("/analyze", response_model=IncidentResponse)
 def analyze_log(request: LogRequest):
     incident = analyze_infrastructure_log(request.log)
-
-    incidents.append(incident)
+    conn=get_connection()
+    cursor=conn.cursor()
+    cursor.execute(
+        "INSERT INTO incidents (incident_id, timestamp, status, category, issue, severity, recommendation) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (incident["incident_id"], incident["timestamp"], incident["status"], incident["category"], incident["issue"], incident["severity"], incident["recommendation"])
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
 
     return incident
 
 @app.get("/incidents")
 def get_incidents():
+    conn=get_connection()
+    cursor=conn.cursor()
+    cursor.execute("SELECT incident_id, timestamp, status, category, issue, severity, recommendation FROM incidents")
+    rows=cursor.fetchall()
+    incidents = []
+    for row in rows:
+        incidents.append({
+            "incident_id": row[0],
+            "timestamp": row[1],
+            "status": row[2],
+            "category": row[3],
+            "issue": row[4],
+            "severity": row[5],
+            "recommendation": row[6]
+        })
+    cursor.close()
+    conn.close()
     return {
         "total_incidents": len(incidents),
         "incidents": incidents
@@ -68,46 +93,88 @@ def get_incidents():
 @app.get("/incidents/{incident_id}")
 def get_incident(incident_id: str):
 
-    for incident in incidents:
+    conn=get_connection()
+    cursor=conn.cursor()
+    cursor.execute("SELECT incident_id, timestamp, status, category, issue, severity, recommendation FROM incidents WHERE incident_id = %s", (incident_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
-        if incident["incident_id"] == incident_id:
-            return incident
+    if row:
+        return {
+            "incident_id": row[0],
+            "timestamp": row[1],
+            "status": row[2],
+            "category": row[3],
+            "issue": row[4],
+            "severity": row[5],
+            "recommendation": row[6]
+        }
 
-    return {
-        "message": "Incident not found"
-    }
+    if not row:
+        return {
+            "message": "Incident not found"
+        }
 @app.put("/incidents/{incident_id}")
 def update_incident_status(incident_id: str):
-
-    for incident in incidents:
-
-        if incident["incident_id"] == incident_id:
-
-            incident["status"] = "resolved"
-
-            return {
-                "message": "Incident updated successfully",
-                "incident": incident
-            }
-
+    print("Received:", incident_id)
+    conn=get_connection()
+    cursor=conn.cursor()
+    cursor.execute("UPDATE incidents SET status = 'resolved' WHERE incident_id = %s", (incident_id,))
+    conn.commit()
+    print("Rows updated:", cursor.rowcount)
+    if cursor.rowcount == 0:
+        cursor.close()
+        conn.close()
+        return {
+            "message": "Incident not found"
+        }
+    cursor.execute("SELECT incident_id, timestamp, status, category, issue, severity, recommendation FROM incidents WHERE incident_id = %s", (incident_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
     return {
-        "message": "Incident not found"
+        "message": "Incident updated successfully",
+        "incident": {
+            "incident_id": row[0],
+            "timestamp": row[1],
+            "status": row[2],
+            "category": row[3],
+            "issue": row[4],
+            "severity": row[5],
+            "recommendation": row[6]
+        }
     }
 @app.delete("/incidents/{incident_id}")
 def delete_incident(incident_id: str):
 
-    for incident in incidents:
+    conn = get_connection()
+    cursor = conn.cursor()
 
-        if incident["incident_id"] == incident_id:
+    cursor.execute(
+        """
+        DELETE FROM incidents
+        WHERE incident_id = %s
+        """,
+        (incident_id,)
+    )
 
-            incidents.remove(incident)
+    conn.commit()
 
-            return {
-                "message": "Incident deleted successfully"
-            }
+    if cursor.rowcount == 0:
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "message": "Incident not found"
+        }
+
+    cursor.close()
+    conn.close()
 
     return {
-        "message": "Incident not found"
+        "message": "Incident deleted successfully"
     }
 @app.get("/weather")
 def weather():
